@@ -127,6 +127,7 @@ class FrustumCamera:
         # @params:
         # - x,y,z: points in world space
         # - camera_pose: [eye_x, eye_y, eye_z, theta_x, theta_y, theta_z]
+        # Credit: Zihan Ling.
 
         point_in_world = [x,y,z,1.0]
         eye = camera_pose[:3]

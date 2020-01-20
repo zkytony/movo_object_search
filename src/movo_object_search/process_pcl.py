@@ -9,6 +9,10 @@ from geometry_msgs.msg import Pose
 import time
 from camera_model import FrustumCamera
 
+VOXEL_OCCUPIED = 0  # TODO: Should replace this by object id
+VOXEL_FREE = -1
+VOXEL_UNKNOWN = -2
+
 # A very good ROS Ask question about the point cloud message
 # https://answers.ros.org/question/273182/trying-to-understand-pointcloud2-msg/
 class PCLProcessor:
@@ -48,8 +52,6 @@ class PCLProcessor:
         self._pub_pcl.publish(msg)
         print("Published markers")
         r.sleep()
-        # print(voxels)
-        # self._received_point_cloud = True
 
     def point_in_volume(self, voxel, point):
         """Check if point (in point cloud) is inside the volume covered by voxel"""
@@ -74,25 +76,48 @@ class PCLProcessor:
         points = []
         for point in sensor_msgs.point_cloud2.read_points(msg, skip_nans=True):
             points.append(point)
+
+        ### Note that in MOVO, the tf frame "movo_camera_color_optical_frame"
+        ### on the Kinect looks in the direction of +z.
+        camera_installation_pose = (0, 0, 0, 180, 0, 0)            
         
         voxels = []
-        for voxel in self._cam.volume:
+        oalt = {}
+        for xyz in self._cam.volume:
             # Iterate over the whole point cloud sparsely
             i = 0
             count = 0
             occupied = False
             # In the camera model, robot looks at -z direction. But robot actually looks at +z in the real camera.
-            voxel[2] = abs(voxel[2])
+            xyz[2] = abs(xyz[2])
             for point in points:
                 if i % self._sparsity == 0:
-                    if self.point_in_volume(voxel, point):
+                    if self.point_in_volume(xyz, point):
                         count += 1
                         if count > self._occupied_threshold:
                             occupied = True
                             break
                 i += 1
-            voxels.append((voxel, occupied))
+
+            # Figure out if the voxel is occluded, or free, based on
+            # its z-index in the parallel projection space. There is
+            # some loss here, but, because the volumetric observation
+            # is already coarse, the loss should be acceptable.
+            parallel_point = self._cam.perspectiveTransform(*xyz, camera_installation_pose)
+            xy_key = (round(parallel_point[0], 2), round(parallel_point[1], 2))
+            if(xy_key not in oalt.keys()):
+                # primitive of oalt: { (x,y) : occupied (or, objid), cube_depth}
+                oalt[xy_key] = (occupied, parallel_point[2])
+            if occupied:
+                voxel = (xyz, VOXEL_OCCUPIED)
+            else:
+                if oalt[xy_key][2] > valt[2]:  # voxel x,y,z is closer to the camera than the obstacle
+                    voxel = (xyz, VOXEL_FREE)
+                else:
+                    voxel = (xyz, VOXEL_UNKNOWN)
+            voxels.append(voxel)
         return voxels
+    
 
     def _make_pose_msg(self, posit, orien):
         pose = Pose()
@@ -111,7 +136,7 @@ class PCLProcessor:
         i = 0
         markers = []
         for voxel in voxels:
-            xyz, occupied = voxel
+            xyz, label = voxel
             
             h = Header()
             h.stamp = timestamp
@@ -127,16 +152,23 @@ class PCLProcessor:
             marker_msg.scale.x = self._resolution
             marker_msg.scale.y = self._resolution
             marker_msg.scale.z = self._resolution
-            if occupied:
+            if label == VOXEL_OCCUPIED:  # red
                 marker_msg.color.r = 0.8
                 marker_msg.color.g = 0.0
                 marker_msg.color.b = 0.0
-                marker_msg.color.a = 0.4
-            else:
+                marker_msg.color.a = 0.5
+            elif label == VOXEL_FREE:  # cyan
                 marker_msg.color.r = 0.0
                 marker_msg.color.g = 0.8
                 marker_msg.color.b = 0.8
-                marker_msg.color.a = 0.4
+                marker_msg.color.a = 0.5
+            elif label == VOXEL_UNKNOWN:  # grey
+                marker_msg.color.r = 0.8
+                marker_msg.color.g = 0.8
+                marker_msg.color.b = 0.8
+                marker_msg.color.a = 0.5
+            else:
+                raise ValueError("Unknown voxel label %s" % str(label))
             marker_msg.lifetime = rospy.Duration.from_sec(3.0)  # forever
             marker_msg.frame_locked = True
             markers.append(marker_msg)
