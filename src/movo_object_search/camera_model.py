@@ -138,7 +138,7 @@ class FrustumCamera:
         look = np.array([0.0, 0.0, -1.0])
 
         #transform up, look vector according to current camera pose
-        r = R.from_quat([rot[0],rot[1],rot[2],rot[3]])
+        r = util.R_euler(rot[0], rot[1], rot[2])#R.from_quat([rot[0], rot[1], rot[2], rot[3]])
         curr_up = r.apply(up)
         curr_look = r.apply(look)
         curr_up += eye
@@ -163,20 +163,20 @@ class FrustumCamera:
         point_in_camera = np.matmul(axis_mat, point_in_camera)
 
         #Transform point in perspective Camera Space to normalized perspective Camera Space
-        p_norm =  1 / ( self._params[3]  * np.tan(( self._params[0] * (np.pi/180.0) )/2) )
+        p_norm =  1.0 / ( self._params[3]  * np.tan(( self._params[0] * (np.pi/180.0) )/2) )
         norm_mat = np.eye(4, dtype = np.float32)
         norm_mat[0, 0] = p_norm
         norm_mat[1, 1] = p_norm
-        norm_mat[2, 2] = 1 / self._params[-1]
+        norm_mat[2, 2] = 1.0 / self._params[-1]
         point_in_norm = np.matmul(norm_mat, point_in_camera)
 
         #Transform point in normalized perspective Camera Space to parallel camera viewing space
         c = - self._params[2] / self._params[3]
         unhinge_mat = np.eye(4, dtype=np.float32)
-        unhinge_mat[2,2] = -1 / (1+c)
+        unhinge_mat[2,2] = -1.0 / (1+c)
         unhinge_mat[2,3] = c / (1+c)
-        unhinge_mat[3,2] = -1
-        unhinge_mat[3,3] = 0
+        unhinge_mat[3,2] = -1.0
+        unhinge_mat[3,3] = 0.0
         point_in_parallel = np.matmul(unhinge_mat, point_in_norm)
 
         #De-homogenize

@@ -34,7 +34,7 @@ class PCLProcessor:
                                   near=near, far=far)
         self._sub_pcl = rospy.Subscriber(topic, PointCloud2,
                                          self._pcl_cb)#, callback_args=(self._cam))
-        self._received_point_cloud = False
+        self._processed_point_cloud = False
 
         # Publish processed point cloud
         self._pub_pcl = rospy.Publisher("/movo_pcl_processor/observation_markers",
@@ -44,14 +44,18 @@ class PCLProcessor:
 
     def _pcl_cb(self, msg):
         # We just process one point cloud message.
-        # if not self._received_point_cloud:
-        voxels = self.process_cloud(msg)
-        msg = self.make_markers_msg(voxels)
-        # publish message
-        r = rospy.Rate(3) # 3 Hz
-        self._pub_pcl.publish(msg)
-        print("Published markers")
-        r.sleep()
+        if self._processed_point_cloud:
+            self._processed_point_cloud = False
+        if not self._processed_point_cloud:
+            voxels = self.process_cloud(msg)
+            msg = self.make_markers_msg(voxels)
+            # publish message
+            r = rospy.Rate(3) # 3 Hz
+            self._pub_pcl.publish(msg)
+            print("Published markers")
+            self._processed_point_cloud = True
+            r.sleep()
+
 
     def point_in_volume(self, voxel, point):
         """Check if point (in point cloud) is inside the volume covered by voxel"""
@@ -76,19 +80,17 @@ class PCLProcessor:
         points = []
         for point in sensor_msgs.point_cloud2.read_points(msg, skip_nans=True):
             points.append(point)
-
-        ### Note that in MOVO, the tf frame "movo_camera_color_optical_frame"
-        ### on the Kinect looks in the direction of +z.
-        camera_installation_pose = (0, 0, 0, 180, 0, 0)            
-        
         voxels = []
         oalt = {}
+        pesp_to_plel = {}  # map from xyz in perspective to xy key in parallel
         for xyz in self._cam.volume:
             # Iterate over the whole point cloud sparsely
             i = 0
             count = 0
             occupied = False
-            # In the camera model, robot looks at -z direction. But robot actually looks at +z in the real camera.
+            # In the camera model, robot looks at -z direction.
+            # But robot actually looks at +z in the real camera.
+            original_z = xyz[2]
             xyz[2] = abs(xyz[2])
             for point in points:
                 if i % self._sparsity == 0:
@@ -98,26 +100,48 @@ class PCLProcessor:
                             occupied = True
                             break
                 i += 1
+            voxels.append((xyz, occupied))
 
-            # Figure out if the voxel is occluded, or free, based on
-            # its z-index in the parallel projection space. There is
-            # some loss here, but, because the volumetric observation
-            # is already coarse, the loss should be acceptable.
-            parallel_point = self._cam.perspectiveTransform(*xyz, camera_installation_pose)
-            xy_key = (round(parallel_point[0], 2), round(parallel_point[1], 2))
-            if(xy_key not in oalt.keys()):
-                # primitive of oalt: { (x,y) : occupied (or, objid), cube_depth}
-                oalt[xy_key] = (occupied, parallel_point[2])
+            # Project the voxel to parallel space and
+            # obtain a mapping from xy_key to z_depth.
+            # Then use this mapping to account for occlusions
+            x,y,_ = map(float,xyz[:3]); z = original_z #-abs(xyz[2])  # camera model looks at -z direction
+            parallel_point = self._cam.perspectiveTransform(x, y, z, (0,0,0,0,0,0))
+                                                            # (0,0,0,0,0,0,1))  # point is already in camera space
+            xy_key = (round(parallel_point[0], 2), round(parallel_point[1], 2))                                                            
+            if occupied:
+                if(xy_key not in oalt.keys()):
+                    # primitive of oalt: { (x,y) : occupied (or, objid), cube_depth}
+                    oalt[xy_key] = parallel_point[2]
+                else:
+                    # update the z index if the point is closer
+                    oalt[xy_key] = min(oalt[xy_key], parallel_point[2]) # since camera looks at +z direction
+            pesp_to_plel[tuple(xyz)] = (xy_key, parallel_point[2])
+
+        # Figure out the final voxel labels (if the voxel is occluded,
+        # or free, or occupied) based on its z-index in the parallel
+        # projection space. There is some loss here, but, because the
+        # volumetric observation is already coarse, the loss should be acceptable.
+        output_voxels = []
+        for xyz, occupied in voxels:
             if occupied:
                 voxel = (xyz, VOXEL_OCCUPIED)
             else:
-                if oalt[xy_key][2] > valt[2]:  # voxel x,y,z is closer to the camera than the obstacle
+                
+
+
+                
+                xy_key, z_point = pesp_to_plel[tuple(xyz)]
+                if xy_key not in oalt:
                     voxel = (xyz, VOXEL_FREE)
                 else:
-                    voxel = (xyz, VOXEL_UNKNOWN)
-            voxels.append(voxel)
-        return voxels
-    
+                    if z_point > oalt[xy_key]:# and oalt[xy_key][0] is True:
+                        # the point is occluded
+                        voxel = (xyz, VOXEL_FREE)
+                    else:
+                        voxel = (xyz, VOXEL_FREE)
+            output_voxels.append(voxel)
+        return output_voxels
 
     def _make_pose_msg(self, posit, orien):
         pose = Pose()
@@ -156,17 +180,17 @@ class PCLProcessor:
                 marker_msg.color.r = 0.8
                 marker_msg.color.g = 0.0
                 marker_msg.color.b = 0.0
-                marker_msg.color.a = 0.5
+                marker_msg.color.a = 0.7
             elif label == VOXEL_FREE:  # cyan
                 marker_msg.color.r = 0.0
                 marker_msg.color.g = 0.8
                 marker_msg.color.b = 0.8
-                marker_msg.color.a = 0.5
+                marker_msg.color.a = 0.1
             elif label == VOXEL_UNKNOWN:  # grey
                 marker_msg.color.r = 0.8
                 marker_msg.color.g = 0.8
                 marker_msg.color.b = 0.8
-                marker_msg.color.a = 0.5
+                marker_msg.color.a = 0.7
             else:
                 raise ValueError("Unknown voxel label %s" % str(label))
             marker_msg.lifetime = rospy.Duration.from_sec(3.0)  # forever
@@ -189,7 +213,8 @@ def main():
     # The new Kinect has color image resolution of 1920 x 1080 pixels and a fov
     # of 84.1 x 53.8 resulting in an average of about 22 x 20 pixels per degree. (see source 2)
     proc = PCLProcessor(fov=60, aspect_ratio=1.0,
-                        near=0.1, far=6, resolution=0.5)  # this covers a range from about 0.32m - 4m
+                        near=1.0, far=7, resolution=0.3,
+                        sparsity=500, occupied_threshold=3)  # this covers a range from about 0.32m - 4m
     rospy.spin()
 
 if __name__ == "__main__":
