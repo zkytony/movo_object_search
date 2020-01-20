@@ -100,48 +100,44 @@ class PCLProcessor:
                             occupied = True
                             break
                 i += 1
-            voxels.append((xyz, occupied))
-
-            # Project the voxel to parallel space and
-            # obtain a mapping from xy_key to z_depth.
-            # Then use this mapping to account for occlusions
-            x,y,_ = map(float,xyz[:3]); z = original_z #-abs(xyz[2])  # camera model looks at -z direction
-            parallel_point = self._cam.perspectiveTransform(x, y, z, (0,0,0,0,0,0))
-                                                            # (0,0,0,0,0,0,1))  # point is already in camera space
-            xy_key = (round(parallel_point[0], 2), round(parallel_point[1], 2))                                                            
             if occupied:
-                if(xy_key not in oalt.keys()):
-                    # primitive of oalt: { (x,y) : occupied (or, objid), cube_depth}
-                    oalt[xy_key] = parallel_point[2]
-                else:
-                    # update the z index if the point is closer
-                    oalt[xy_key] = min(oalt[xy_key], parallel_point[2]) # since camera looks at +z direction
-            pesp_to_plel[tuple(xyz)] = (xy_key, parallel_point[2])
-
-        # Figure out the final voxel labels (if the voxel is occluded,
-        # or free, or occupied) based on its z-index in the parallel
-        # projection space. There is some loss here, but, because the
-        # volumetric observation is already coarse, the loss should be acceptable.
-        output_voxels = []
-        for xyz, occupied in voxels:
-            if occupied:
-                voxel = (xyz, VOXEL_OCCUPIED)
+                voxels.append((xyz, VOXEL_OCCUPIED))
+                xyz2 = [xyz[0], xyz[1], xyz[2]+1]
+                voxels.append((xyz2, VOXEL_UNKNOWN))
             else:
-                
+                voxels.append((xyz, VOXEL_FREE))
+        #     # Project the voxel to parallel space and
+        #     # obtain a mapping from xy_key to z_depth.
+        #     # Then use this mapping to account for occlusions
+        #     x,y,_ = map(float,xyz[:3]); z = original_z #-abs(xyz[2])  # camera model looks at -z direction
+        #     parallel_point = self._cam.perspectiveTransform(x, y, z, (0,0,0,0,0,0))
+        #                                                     # (0,0,0,0,0,0,1))  # point is already in camera space
+        #     xy_key = (round(parallel_point[0], 2), round(parallel_point[1], 2))                                                            
+        #     if(xy_key not in oalt.keys()):
+        #         # primitive of oalt: { (x,y) : occupied (or, objid), cube_depth}
+        #         oalt[xy_key] = (occupied, parallel_point[2])
+        #     else:
+        #         # update the z index if the point is closer
+        #         oalt[xy_key] = (occupied, min(oalt[xy_key][1], parallel_point[2])) # since camera looks at +z direction
+        #     pesp_to_plel[tuple(xyz)] = (xy_key, parallel_point[2])
 
-
-                
-                xy_key, z_point = pesp_to_plel[tuple(xyz)]
-                if xy_key not in oalt:
-                    voxel = (xyz, VOXEL_FREE)
-                else:
-                    if z_point > oalt[xy_key]:# and oalt[xy_key][0] is True:
-                        # the point is occluded
-                        voxel = (xyz, VOXEL_FREE)
-                    else:
-                        voxel = (xyz, VOXEL_FREE)
-            output_voxels.append(voxel)
-        return output_voxels
+        # # Figure out the final voxel labels (if the voxel is occluded,
+        # # or free, or occupied) based on its z-index in the parallel
+        # # projection space. There is some loss here, but, because the
+        # # volumetric observation is already coarse, the loss should be acceptable.
+        # output_voxels = []
+        # for xyz, occupied in voxels:
+        #     if occupied:
+        #         voxel = (xyz, VOXEL_OCCUPIED)
+        #     else:
+        #         xy_key, z_point = pesp_to_plel[tuple(xyz)]
+        #         if z_point > oalt[xy_key][1]: # and oalt[xy_key][0] is True:
+        #             # the point is occluded
+        #             voxel = (xyz, VOXEL_UNKNOWN)
+        #         else:
+        #             voxel = (xyz, VOXEL_FREE)
+        #     output_voxels.append(voxel)
+        return voxels
 
     def _make_pose_msg(self, posit, orien):
         pose = Pose()
