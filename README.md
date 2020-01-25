@@ -22,14 +22,49 @@ Note that to visualize the point cloud, go to Sensing-> PointCloud2, and make su
 the Topic is `/movo_camera/point_cloud/points
 
 
-### Processing point cloud
+## How-tos
 
-Converting from scaled values to meters: 
+### How to start a Gazebo simulation
 
-Good answer from [ROS Ask](https://answers.ros.org/question/236223/piontcloud-to-depth-image-codification/):
+1. `roslaunch movo_object_search world_bringup.launch`
+   
+    This command will start the Gazebo simulation (by default, the gui is `true`),
+    and other necessary MOVO components. When the Gazebo simulation starts, wait
+    for a few seconds until the MOVO dance completes.
+    
+    By default the environment is `worlds/tabletop_cube.sdf` which is located
+    under the `movo_gazebo` package. If you want to change it, edit the default
+    value of the parameter `world` in `environment.launch`.
+    
+### How to start navigation stack
 
-You should convert your depth image from scaled values to meters (as 32-bit float), as described in REP- 0118, and publish this as a sensor_msgs/Float .
-Then run the depth_image_proc/point_cloud_xyz node from depth_image_proc, and remap its image_rect topic to the topic where you are publishing your depth image. This will publish sensor_msgs/PointCloud2 messages on the points topic.
-You can then view these messages with the PointCloud2 display type in rviz. (make sure your fixed frame in rviz matches the frame_id)`
+1. `roslaunch movo_object_search navigation.launch`
 
-USE PCL library to convert it.
+    This will launch the necessary components for the navigation stack; It
+    is just a proxy for `$(find movo_demos)/launch/nav/map_nav.launch` file.
+    
+    By default the map for the `tabletop_cube` environment is used; The name
+    of the map is called `test_simple`, and the `.pgm` and `.yaml` files are
+    located under `$(find movo_demos)/map/`. It's very confusing that the world
+    models and the map files are not in the same package. But, it is what it is.
+    
+**Notes**:
+
+* The amcl poses are published under `/amcl_pose`, not /robot_pose.
+* The map is served at `/map` topic, as usual.
+* In the topological map package, even though there is a camera pose topic argument,
+  the code actually does not make use of the camera pose. Therefore I commented
+  it out in the launch file for topological map generation.
+
+    
+### How to get volumetric observation?
+
+1. Go to `$(movo_object_search)/scripts/observation` and run `python process_pcl.py`.
+   If you want to detect AR tag as well `python process_pcl.py -M`. Note that
+   due to ROS-related reasons, `python process_pcl.py -M` will only broadcast
+   observations if an AR tag is detected. Therefore, I recommend running these
+   two together separately, each with a different node name.
+   
+### Which RVIZ to use?
+
+1. Use the `nav_cloud.rviz` which allows navigation and also visualizes the observation and point cloud.

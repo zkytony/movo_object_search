@@ -4,6 +4,9 @@ import math
 from scipy.spatial.transform import Rotation as scipyR
 
 # Math
+def euclidean_dist(p1, p2):
+    return math.sqrt(sum([(a - b)** 2 for a, b in zip(p1, p2)]))
+
 def vec(p1, p2):
     """ vector from p1 to p2 """
     if type(p1) != np.ndarray:

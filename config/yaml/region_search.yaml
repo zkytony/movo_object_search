@@ -1,0 +1,48 @@
+# These should be changed dynamically
+region_origin_x: 0.0
+region_origin_y: 0.0
+search_space_dimension: 16
+search_space_resolution: 0.3
+
+topo_map_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/maps/test_simple_topo.json"
+region_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/maps/test_simple_regions.json"
+region_name: "table_area"
+
+observation_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/tmp/obs_info.yaml"
+action_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/tmp/action_info.yaml"
+prior_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/tmp/prior.yaml"
+
+
+# topics
+robot_pose_topic: "/amcl_pose"
+torso_height_topic: "/movo/torso_controller/state"
+marker_topic: "/movo_pcl_processor/observation_markers"
+point_cloud_topic: "/movo_camera/sd/points"
+
+# target objects
+target_object_ids:
+  - 0
+  - 1
+  - 2
+
+# torso
+torso_min: 0.1
+torso_max: 0.6
+
+# navigation
+goal_tolerance: 0.3
+
+# POMDP viewing frustum parameters
+fov: 60
+aspect_ratio: 1.0
+near: 0.1
+far: 7.0
+
+# real observation model parameters
+sparsity: 500
+occupied_threshold: 3
+mark_nearby: true
+
+# communication wait time
+action_wait_time: 60
+observation_wait_time: 120

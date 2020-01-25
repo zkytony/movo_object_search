@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!-- Launches the necessary components for navigation -->
+<launch>
+  <arg name="map_file" default="test_simple"/>
+  
+  <include file="$(find movo_demos)/launch/nav/map_nav.launch">
+    <arg name="map_file" value="$(arg map_file)"/>
+    <arg name="sim" value="true"/>
+    <arg name="local" value="true"/>
+  </include>
+</launch>
