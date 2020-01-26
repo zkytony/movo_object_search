@@ -1,17 +1,23 @@
 # These should be changed dynamically
-region_origin_x: 0.0
-region_origin_y: 0.0
-search_space_dimension: 16
-search_space_resolution: 0.3
+# region_origin_x: 0.0
+# region_origin_y: 0.0
+# search_space_dimension: 16
+# search_space_resolution: 0.3
 
-topo_map_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/maps/test_simple_topo.json"
-region_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/maps/test_simple_regions.json"
-region_name: "table_area"
+# TODO: More flexibly change these parameters
+## Gazebo simualation
+# topo_map_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/maps/test_simple_topo.json"
+# region_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/maps/test_simple_regions.json"
+# region_name: "table_area"
 
+## CIT 122
+topo_map_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/maps/cit122_topo_map.json"
+region_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/maps/cit122_regions.json"
+region_name: "shelf-corner"
+
+prior_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/config/yaml/prior.yaml"
 observation_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/tmp/obs_info.yaml"
 action_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/tmp/action_info.yaml"
-prior_file: "/home/kaiyuzh/movo_ws/src/movo_tutorials/movo_object_search/tmp/prior.yaml"
-
 
 # topics
 robot_pose_topic: "/amcl_pose"

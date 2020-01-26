@@ -4,7 +4,7 @@
   <arg name="paused" default="false"/>
   <arg name="gui" default="true"/>
   <arg name="world" default="worlds/tabletop_cube.sdf"/>
-  <arg name="x"   default="0.0"/>
+  <arg name="x"   default="1.3"/>
   <arg name="y"   default="0.0"/>
   <arg name="z"   default="0.0"/>
 
@@ -20,7 +20,7 @@
   <!--     <arg name="verbose" value="true" /> -->
   <!-- </include>     -->
 
-  <include file="$(find movo_gazebo)/launch/movo.launch">
+  <include file="$(find movo_gazebo)/launch/movo_no_arms.launch">
     <arg name="world" value="$(find movo_gazebo)/$(arg world)"/>
     <arg name="limited" value="$(arg limited)"/>
     <arg name="paused" value="$(arg paused)"/>
