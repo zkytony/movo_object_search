@@ -207,6 +207,7 @@ class PCLProcessor:
         points = []
         for point in sensor_msgs.point_cloud2.read_points(msg, skip_nans=True):
             points.append(point)
+        rospy.loginfo("(info)[Received %d points in point cloud]" % len(points))
         voxels = {}  # map from voxel_pose xyz to label
         parallel_occupied = {}
         for volume_voxel_pose in self._cam.volume:
@@ -263,7 +264,7 @@ class PCLProcessor:
                 if xy_key in parallel_occupied:
                     if parallel_point[2] > parallel_occupied[xy_key][1]:
                         # the voxel is closer to the camera, so it's free.
-                        final_voxels[voxel_pose_ros] = (voxel_pose_ros, VOXEL_UNKNOWN)
+                        final_voxels[voxel_pose_ros] = (voxel_pose_ros, VOXEL_FREE)
                     else:
                         # otherwise --> it's unknown
                         final_voxels[voxel_pose_ros] = (voxel_pose_ros, VOXEL_UNKNOWN)

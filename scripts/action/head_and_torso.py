@@ -22,15 +22,15 @@ from trajectory_msgs.msg import (
     JointTrajectoryPoint,
 )
 from sensor_msgs.msg import JointState
-
 from control_msgs.msg import JointTrajectoryControllerState
 
 class HeadJTAS(object):
-    def __init__(self):
+    def __init__(self, head_topic="/movo/head_controller/state"):
         self._client = actionlib.SimpleActionClient(
             'movo/head_controller/follow_joint_trajectory',
             FollowJointTrajectoryAction,
         )
+        self._head_topic = head_topic
         self._goal = FollowJointTrajectoryGoal()
         self._goal_time_tolerance = rospy.Time(0.1)
         self._goal.goal_time_tolerance = self._goal_time_tolerance
@@ -68,6 +68,37 @@ class HeadJTAS(object):
         self._goal = FollowJointTrajectoryGoal()
         self._goal.goal_time_tolerance = self._goal_time_tolerance
         self._goal.trajectory.joint_names = ['pan_joint','tilt_joint']
+
+    @classmethod
+    def move(cls, desired_pan, desired_tilt, head_topic="/movo/head_controller/state"):
+        """desired_pan, desired_tilt (radian) are angles of pan and tilt joints of the head"""
+        msg = rospy.wait_for_message(head_topic, JointTrajectoryControllerState, timeout=15)
+        assert msg.joint_names[0] == 'pan_joint', "Joint is not head joints (need pan or tilt)."
+        cur_pan = msg.actual.positions[0]
+        cur_tilt = msg.actual.positions[1]
+
+        traj_head = HeadJTAS()
+        total_time_head = 0.0
+        traj_head.add_point([cur_pan, cur_tilt], 0.0)
+        # First pan
+        if desired_pan < cur_pan:
+            vel = -0.3
+        else:
+            vel = 0.3
+        dt = abs(abs(desired_pan - cur_pan) / vel)
+        total_time_head += dt
+        traj_head.add_point([desired_pan, cur_tilt],total_time_head)
+        # then tilt
+        if desired_tilt < cur_tilt:
+            vel = -0.3
+        else:
+            vel = 0.3
+        dt = abs(abs(desired_tilt - cur_tilt) / vel)
+        total_time_head += dt        
+        traj_head.add_point([desired_pan, desired_tilt],total_time_head)                    
+        traj_head.start()
+        traj_head.wait(total_time_head+3.0)
+        return True
 
 class TorsoJTAS(object):
     def __init__(self):
@@ -113,16 +144,23 @@ class TorsoJTAS(object):
         self._goal.goal_time_tolerance = self._goal_time_tolerance
         self._goal.trajectory.joint_names = ['linear_joint']
 
-    def move(self, current_height, desired_height):
+    @classmethod
+    def move(cls, desired_height, current_height=None, torso_topic="/movo/torso_controller/state"):
+        # get current position
+        if current_height is None:
+            msg = rospy.wait_for_message(torso_topic, JointTrajectoryControllerState, timeout=15)
+            assert msg.joint_names[0] == 'linear_joint', "Joint is not linear joint (not torso)."
+            current_height = msg.actual.positions[0]
+        traj_torso = TorsoJTAS()
         total_time_torso = 0.0
-        points_torso = [list(current_height), 0.0]
-        for i in range(0,1):
-            pos = desired_height # Maximum height: 0.4.
+        traj_torso.add_point([current_height], 0.0)
+        if desired_height < current_height:
+            vel = -0.05
+        else:
             vel = 0.05
-            dt = abs(pos)/vel
-            total_time_torso+=dt
-            traj_torso.add_point([pos],total_time_torso)
+        dt = abs(abs(desired_height - current_height) / vel)
+        total_time_torso += dt
+        traj_torso.add_point([desired_height],total_time_torso)
         traj_torso.start()
         traj_torso.wait(total_time_torso+3.0)
-        print("Exiting - Joint Trajectory Action Test Complete")
-        
+        return True

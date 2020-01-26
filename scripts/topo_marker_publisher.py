@@ -1,9 +1,13 @@
+#!/usr/bin/env python
 import rospy
 import sensor_msgs.point_cloud2
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import Header
 from geometry_msgs.msg import Pose, Point
+from ros_util import get_param
 import json
+import os
+
 
 def make_pose_msg(posit, orien):
     pose = Pose()
@@ -75,11 +79,15 @@ class PublishTopoMarkers:
                  map_file,
                  resolution,
                  marker_frame="map",
-                 marker_topic="/movo_object_search_in_region/topo_markers"):
+                 marker_topic="/movo_object_search_in_region/topo_markers",
+                 publish=True):
         self._marker_frame = marker_frame
         self._nodes = {}
         self._edges = {}
         self._resolution = resolution
+        rospy.loginfo(map_file)
+        print(map_file)
+        print(os.path.exists(map_file))
         with open(map_file) as f:
             data = json.load(f)
 
@@ -97,7 +105,16 @@ class PublishTopoMarkers:
                                     MarkerArray,
                                     queue_size=10,
                                     latch=True)
-        self._pub.publish(markers_msg)
+        if publish:
+            self._pub.publish(markers_msg)
+
+    @property
+    def nodes(self):
+        return self._nodes
+
+    @property
+    def edges(self):
+        return self._edges
 
     def make_markers_msg(self):
         """Convert voxels to Markers message for visualizatoin"""
@@ -190,3 +207,15 @@ class PublishTopoMarkers:
 
         marker_array_msg = MarkerArray(markers)
         return marker_array_msg
+
+
+def main():
+    rospy.init_node("topo_map_marker_publisher")
+    
+    topo_map_file = get_param("topo_map_file")
+    resolution = get_param("resolution")
+    PublishTopoMarkers(topo_map_file, resolution)
+    rospy.spin()
+
+if __name__ == "__main__":
+    main()
