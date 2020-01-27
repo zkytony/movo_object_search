@@ -34,6 +34,11 @@ class PCLProcessor:
     """
     def __init__(self,
                  # frustum camera configuration
+                 target_ids=None,
+                 # marker_size=0.05,  # This actually won't affect detection,
+                 #                    # which is already done by aruco. This
+                 #                    # setting is just a differentiator between
+                 #                    # different aruco nodes that detect different sizes.
                  fov=90,
                  aspect_ratio=1,
                  near=1,
@@ -41,7 +46,7 @@ class PCLProcessor:
                  resolution=0.5,  # m/grid cell
                  pcl_topic="/movo_camera/point_cloud/points",
                  marker_topic="/movo_pcl_processor/observation_markers",
-                 artag_topic="/aruco_marker_publisher/markers",
+                 artag_topic="/aruco_marker_publisher/markers",  # Tip: Should be suffixed by marker size to allow detecting multiple marker sizes (is this necessary though?)
                  voxel_marker_frame="movo_camera_color_optical_frame",
                  world_frame="map",
                  sparsity=1000,
@@ -49,7 +54,8 @@ class PCLProcessor:
                  mark_nearby=False,  # mark voxels within 1 distance of the artag voxel as well.
                  mark_ar_tag=True,   # true if use message filter to process ar tag and point cloud messages together
                  save_path=None,     # (str) if save the volumetric observation to a file.
-                 quit_when_saved=False):    # terminate when an observation has been saved.
+                 quit_when_saved=False): # terminate when an observation has been saved.
+        self._target_ids = target_ids
         self._resolution = resolution
         self._sparsity = sparsity  # number of points to skip
         self._occupied_threshold = occupied_threshold
@@ -96,7 +102,7 @@ class PCLProcessor:
             if self._save_path is not None:
                 wf_voxels = self._transform_worldframe(voxels)
                 with open(self._save_path, "w") as f:
-                    yaml.dump(wf_voxels, f)
+                    yaml.safe_dump(wf_voxels, f)
                     if self._quit_when_saved:
                         self._quit = True
             # publish message
@@ -117,6 +123,11 @@ class PCLProcessor:
 
             # Mark voxel at artag location as object
             for artag in artag_msg.markers:
+                # If artag id is one of the target ids
+                if self._target_ids is not None:
+                    if int(artag.id) not in self._target_ids:
+                        continue  # not one of the targets
+                
                 # Transform pose to voxel_marker_frame
                 artag_pose = self._get_transform(self._voxel_marker_frame, artag.header.frame_id, artag.pose.pose)
                 if artag_pose is False:
@@ -130,20 +141,20 @@ class PCLProcessor:
                 # (Approach1) Find the voxel_pose in the volume closest to above
                 if not self._mark_nearby:
                     closest_voxel_pose = min(voxels, key=lambda voxel_pose: util.euclidean_dist(voxel_pose, arvoxel_pose))
-                    voxels[closest_voxel_pose] = (closest_voxel_pose, artag.id)
+                    voxels[closest_voxel_pose] = (closest_voxel_pose, int(artag.id))
                 else:
                     # (Approach2) Mark all voxel_poses in the volume within a certain dist.
                     nearby_voxel_poses = {voxel_pose
                                           for voxel_pose in voxels
                                           if util.euclidean_dist(voxel_pose, arvoxel_pose) <= 1}
                     for voxel_pose in nearby_voxel_poses:
-                        voxels[voxel_pose] = (voxel_pose, artag.id)
+                        voxels[voxel_pose] = (voxel_pose, int(artag.id))
 
             # saving
             if self._save_path is not None:
                 wf_voxels = self._transform_worldframe(voxels)
                 with open(self._save_path, "w") as f:
-                    yaml.dump(wf_voxels, f)
+                    yaml.safe_dump(wf_voxels, f)
                     if self._quit_when_saved:
                         self._quit = True
                         
@@ -192,13 +203,15 @@ class PCLProcessor:
         (trans,rot) = self._tf_listener.lookupTransform(self._world_frame,
                                                         self._voxel_marker_frame,
                                                         rospy.Time(0))
-        wf_voxels = {}
+        wf_voxels = {}   # this is what will be dumped; So be safe.
+        i = 0
         for voxel_pose in voxels:
             x,y,z = voxel_pose
-            wf_pose = (x + float(trans[0]),
-                       y + float(trans[1]),
-                       z + float(trans[2]))
-            wf_voxels[wf_pose] = (wf_pose, voxels[voxel_pose][1])
+            wf_pose = (float(x + trans[0]),
+                       float(y + trans[1]),
+                       float(z + trans[2]))
+            wf_voxels[i] = (wf_pose, voxels[voxel_pose][1])
+            i += 1
         return wf_voxels
             
 
@@ -349,6 +362,7 @@ def main():
     parser.add_argument('-r', '--resolution', type=float,
                         default=0.3,
                         help='resolution of search region (i.e. volume). Format, float')
+    parser.add_argument('-T', '--target-ids', type=str)
     parser.add_argument('--fov', type=float,
                         help="FOV angle",
                         default=60)
@@ -371,6 +385,11 @@ def main():
     rospy.init_node("movo_pcl_processor",
                     anonymous=True, disable_signals=True)
 
+    # process args
+    target_ids = None
+    if args.target_ids is not None:
+        target_ids = set(map(int, args.target_ids.split(" ")))
+
     # Some info about the Kinect
     # The Kinect has a range of around . 5m and 4.5m (1'8"-14'6".)
     #    (ref: https://docs.depthkit.tv/docs/kinect-for-windows-v2)
@@ -378,7 +397,8 @@ def main():
     # 62 x 48.6 degrees resulting in an average of about 10 x 10 pixels per degree. (see source 1)
     # The new Kinect has color image resolution of 1920 x 1080 pixels and a fov
     # of 84.1 x 53.8 resulting in an average of about 22 x 20 pixels per degree. (see source 2)
-    proc = PCLProcessor(fov=args.fov, aspect_ratio=args.asp,
+    proc = PCLProcessor(target_ids=target_ids,
+                        fov=args.fov, aspect_ratio=args.asp,
                         near=args.near, far=args.far, resolution=args.resolution,
                         sparsity=args.sparsity, occupied_threshold=args.occupied_threshold,
                         pcl_topic=args.point_cloud_topic,
@@ -392,3 +412,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+o
