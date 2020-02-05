@@ -1,4 +1,4 @@
-devel/
+>devel/
 logs/
 build/
 bin/
@@ -52,3 +52,6 @@ CATKIN_IGNORE
 
 
 tmp/
+assets/aruco/
+maps/useless/
+*.xcf

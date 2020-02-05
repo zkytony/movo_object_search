@@ -29,6 +29,13 @@ class FrustumCamera:
     def volume(self):
         return self._volume
 
+    def print_info(self):
+        print("         FOV: " + str(self.fov))
+        print("aspect_ratio: " + str(self.aspect_ratio))
+        print("        near: " + str(self.near))
+        print("         far: " + str(self.far))
+        print(" volume size: " + str(len(self.volume)))
+
     def __init__(self, fov=90, aspect_ratio=1, near=1, far=5):
         """
         fov: angle (degree), how wide the viewing angle is.

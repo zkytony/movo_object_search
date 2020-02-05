@@ -31,46 +31,84 @@ class PublishSearchRegionMarkers:
         self._region_size = search_region_dimension * search_region_resolution
         self._region_origin = region_origin
         
-        markers_msg = self.make_markers_msg()
+        markers_msg = MarkerArray([PublishSearchRegionMarkers.make_marker_msg(self._region_origin,
+                                                                              self._region_size,
+                                                                              self._marker_frame,
+                                                                              single=True)])
         self._pub = rospy.Publisher(marker_topic,
                                     MarkerArray,
                                     queue_size=10,
                                     latch=True)
-        self._pub.publish(markers_msg)        
-        
-    def make_markers_msg(self):
-        """Convert voxels to Markers message for visualizatoin"""
+        self._pub.publish(markers_msg)
+
+    @classmethod
+    def publish_all_regions(cls, regions_file,
+                            marker_frame="map",
+                            marker_topic="/movo_object_search_in_region/region_markers/all"):
         timestamp = rospy.Time.now()
-        i = 0
         markers = []
-        
-        region_center = (self._region_origin[0] + self._region_size / 2.0,
-                         self._region_origin[1] + self._region_size / 2.0)
-        
+        with open(regions_file) as f:
+            data = json.load(f)
+            i = 0
+            for region_name in data["regions"]:
+                region_data = data["regions"][region_name]
+                region_origin = tuple(map(float, region_data["origin"][:2]))
+                search_space_dimension = int(region_data["dimension"])
+                search_space_resolution = float(region_data["resolution"])
+                region_size = search_space_dimension * search_space_resolution
+                marker_msg = PublishSearchRegionMarkers.make_marker_msg(region_origin,
+                                                                        region_size,
+                                                                        marker_frame=marker_frame,
+                                                                        timestamp=timestamp,
+                                                                        marker_id=i)
+                markers.append(marker_msg)
+                i += 1
+        markers_msg = MarkerArray(markers)
+        pub = rospy.Publisher(marker_topic,
+                              MarkerArray,
+                              queue_size=10,
+                              latch=True)
+        pub.publish(markers_msg)
+        return pub
+
+
+    @classmethod
+    def make_marker_msg(cls, region_origin, region_size,
+                        marker_frame="map", timestamp=None,
+                        marker_id=1, single=False):
+        """Convert voxels to Markers message for visualizatoin"""
+        if timestamp is None:
+            timestamp = rospy.Time.now()
+        region_center = (region_origin[0] + region_size / 2.0,
+                         region_origin[1] + region_size / 2.0)
         # rectangle
         h = Header()
         h.stamp = timestamp
-        h.frame_id = self._marker_frame
+        h.frame_id = marker_frame
         marker_msg = Marker()
         marker_msg.header = h
         marker_msg.type = 1  # cube
         marker_msg.ns = "search_region"
-        marker_msg.id = i; i+=1
+        marker_msg.id = marker_id
         marker_msg.action = 0 # add an object
         marker_msg.pose = make_pose_msg((region_center[0], region_center[1], 0.0),
                                         [0,0,0,1])
-        marker_msg.scale.x = self._region_size
-        marker_msg.scale.y = self._region_size
+        marker_msg.scale.x = region_size
+        marker_msg.scale.y = region_size
         marker_msg.scale.z = 0.02
-        marker_msg.color.r = 0.2
-        marker_msg.color.g = 0.7
-        marker_msg.color.b = 0.7
-        marker_msg.color.a = 0.4            
+        if single:
+            marker_msg.color.r = 0.1
+            marker_msg.color.g = 0.5
+            marker_msg.color.b = 0.5
+            marker_msg.color.a = 0.4            
+        else:
+            marker_msg.color.r = 0.7
+            marker_msg.color.g = 0.4
+            marker_msg.color.b = 0.3
+            marker_msg.color.a = 0.4            
         marker_msg.lifetime = rospy.Duration(0)  # forever
         marker_msg.frame_locked = True
-        markers.append(marker_msg)
-        marker_array_msg = MarkerArray(markers)
-        return marker_array_msg
+        return marker_msg
     
 
 class PublishTopoMarkers:
@@ -211,10 +249,25 @@ class PublishTopoMarkers:
 
 def main():
     rospy.init_node("topo_map_marker_publisher")
-    
+
+    # # Test topo map markers
     topo_map_file = get_param("topo_map_file")
     resolution = get_param("resolution")
     PublishTopoMarkers(topo_map_file, resolution)
+    # rospy.spin()
+
+    regions_file = get_param("regions_file")    
+    pub = PublishSearchRegionMarkers.publish_all_regions(regions_file)
+
+    region_name = get_param("region_name")  # specify by _region_name:="shelf-corner"    
+    with open(regions_file) as f:
+        data = json.load(f)
+        region_data = data["regions"][region_name]
+    region_origin = tuple(map(float, region_data["origin"][:2]))
+    search_space_dimension = int(region_data["dimension"])
+    search_space_resolution = float(region_data["resolution"])
+    PublishSearchRegionMarkers(region_origin, search_space_dimension,
+                               search_space_resolution)
     rospy.spin()
 
 if __name__ == "__main__":

@@ -10,9 +10,8 @@ def main():
     rospy.init_node("movo_topo_map_visitor",
                     anonymous=True)
     topo_map_file = get_param('topo_map_file')
-    resolution = get_param("/topo_marker_publisher/resolution")
     # don't actually publish; it's already published    
-    pub = PublishTopoMarkers(topo_map_file, resolution, publish=False)
+    pub = PublishTopoMarkers(topo_map_file, 0.3)
     
     waypoints = []
     i = 0
@@ -35,3 +34,6 @@ def main():
     
 if __name__ == "__main__":
     main()
+
+# command to run:
+#    rosrun movo_object_search search_in_region.py _regions:="table-area,desktop-area,shelf-corner,whiteboard-area"

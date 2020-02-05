@@ -13,9 +13,12 @@ import message_filters
 import tf
 import util
 import yaml
+import os
 
 import time
 from camera_model import FrustumCamera
+from scipy.spatial.transform import Rotation as R
+import numpy as np
 
 # THE VOXEL TYPE; If > 0, it's an object id.
 VOXEL_OCCUPIED = "occupied"
@@ -35,10 +38,7 @@ class PCLProcessor:
     def __init__(self,
                  # frustum camera configuration
                  target_ids=None,
-                 # marker_size=0.05,  # This actually won't affect detection,
-                 #                    # which is already done by aruco. This
-                 #                    # setting is just a differentiator between
-                 #                    # different aruco nodes that detect different sizes.
+                 marker_class=1, # Marker class->size: 1=0.05, 2=0.10
                  fov=90,
                  aspect_ratio=1,
                  near=1,
@@ -46,7 +46,9 @@ class PCLProcessor:
                  resolution=0.5,  # m/grid cell
                  pcl_topic="/movo_camera/point_cloud/points",
                  marker_topic="/movo_pcl_processor/observation_markers",
-                 artag_topic="/aruco_marker_publisher/markers",  # Tip: Should be suffixed by marker size to allow detecting multiple marker sizes (is this necessary though?)
+                 # Following two creates e.g. /aruco_marker_publisher_{marker_class}/markers                 
+                 aruco_node_name="aruco_marker_publisher",
+                 aruco_sub_topic="markers",                 
                  voxel_marker_frame="movo_camera_color_optical_frame",
                  world_frame="map",
                  sparsity=1000,
@@ -77,6 +79,7 @@ class PCLProcessor:
         # in case there is no AR tag detected.
         self._sub_pcl = message_filters.Subscriber(pcl_topic, PointCloud2)
         if self._mark_ar_tag:
+            artag_topic = "%s_%s/%s" % (aruco_node_name, str(marker_class), aruco_sub_topic)
             self._sub_artag = message_filters.Subscriber(artag_topic, ArMarkerArray)
             self._pcl_artag_ats = message_filters.ApproximateTimeSynchronizer([self._sub_pcl, self._sub_artag],
                                                                               20, 3)#queue_size=10, slop=1.0)
@@ -89,7 +92,7 @@ class PCLProcessor:
         self._pub_pcl = rospy.Publisher(marker_topic,
                                         MarkerArray,
                                         queue_size=10,
-                                        latch=True)
+                                        latch=False)
 
     def _pcl_cb(self, msg):
         # We just process one point cloud message at a time.
@@ -97,14 +100,15 @@ class PCLProcessor:
             return
         else:
             self._processing_point_cloud = True
-            voxels = self.process_cloud(msg)
+            voxels = self.process_cloud(msg, is_ar=False)
             # saving
             if self._save_path is not None:
-                wf_voxels = self._transform_worldframe(voxels)
-                with open(self._save_path, "w") as f:
-                    yaml.safe_dump(wf_voxels, f)
-                    if self._quit_when_saved:
-                        self._quit = True
+                self._save_processed_voxels(voxels, self._save_path, is_ar=False)
+                # wf_voxels = self._transform_worldframe(voxels)
+                # with open(self._save_path, "w") as f:
+                #     yaml.safe_dump(wf_voxels, f)
+                #     if self._quit_when_saved:
+                #         self._quit = True
             # publish message
             msg = self.make_markers_msg(voxels)
             r = rospy.Rate(3) # 3 Hz
@@ -119,14 +123,16 @@ class PCLProcessor:
             return
         else:
             self._processing_point_cloud = True
-            voxels = self.process_cloud(pcl_msg)
+            voxels = self.process_cloud(pcl_msg, is_ar=False)
 
             # Mark voxel at artag location as object
             for artag in artag_msg.markers:
                 # If artag id is one of the target ids
                 if self._target_ids is not None:
                     if int(artag.id) not in self._target_ids:
+                        rospy.logwarn("(note)[AR tag %d is detected but it is not one of the targets.]" % int(artag.id))
                         continue  # not one of the targets
+                rospy.loginfo("Target AR tag %d is detected." % int(artag.id))
                 
                 # Transform pose to voxel_marker_frame
                 artag_pose = self._get_transform(self._voxel_marker_frame, artag.header.frame_id, artag.pose.pose)
@@ -152,11 +158,12 @@ class PCLProcessor:
 
             # saving
             if self._save_path is not None:
-                wf_voxels = self._transform_worldframe(voxels)
-                with open(self._save_path, "w") as f:
-                    yaml.safe_dump(wf_voxels, f)
-                    if self._quit_when_saved:
-                        self._quit = True
+                self._save_processed_voxels(voxels, self._save_path, is_ar=True)
+                # wf_voxels = self._transform_worldframe(voxels)
+                # with open(self._save_path, "w") as f:
+                #     yaml.safe_dump(wf_voxels, f)
+                #     if self._quit_when_saved:
+                #         self._quit = True
                         
             msg = self.make_markers_msg(voxels)
             # publish message
@@ -198,31 +205,83 @@ class PCLProcessor:
             rospy.logwarn("Frame %s or %s does not exist. (Check forward slash?)" % (target_frame, source_frame))
             return False
 
+    # DEPRECATED. THIS DOES NOT WORK.
     def _transform_worldframe(self, voxels):
+        rospy.loginfo("Computing world frame poses for voxels in camera frame")
+        # # Sanity check
+        # self._pub_wf = rospy.Publisher("/observation_markers/world_frame",
+        #                                MarkerArray,
+        #                                queue_size=10,
+        #                                latch=True)        
+        # wf_voxels = {}   # this is what will be dumped; So be safe.
+        # i = 0
+        # for voxel_pose in voxels:
+        #     x,y,z = voxel_pose
+        #     pose_msg = self._make_pose_msg((x,y,z), (0,0,0,1))
+        #     world_pose = self._get_transform("map", self._voxel_marker_frame, pose_msg)
+        #     wf_pose = (world_pose.position.x,
+        #                world_pose.position.y,
+        #                world_pose.position.z)
+        #     wf_voxels[i] = (wf_pose, voxels[voxel_pose][1])
+        #     i += 1
+        
         # obtain transform
-        (trans,rot) = self._tf_listener.lookupTransform(self._world_frame,
+        world_frame = "map"
+        (trans,rot) = self._tf_listener.lookupTransform(world_frame,
                                                         self._voxel_marker_frame,
                                                         rospy.Time(0))
         wf_voxels = {}   # this is what will be dumped; So be safe.
         i = 0
         for voxel_pose in voxels:
-            x,y,z = voxel_pose
-            wf_pose = (float(x + trans[0]),
-                       float(y + trans[1]),
-                       float(z + trans[2]))
+            rx, ry, rz = R.from_quat(rot).apply(voxel_pose)
+            wf_pose = (float(rx + trans[0]),
+                       float(ry + trans[1]),
+                       float(rz + trans[2]))
             wf_voxels[i] = (wf_pose, voxels[voxel_pose][1])
             i += 1
+        msg = self.make_markers_msg(wf_voxels, frame_id=world_frame)
+        self._pub_wf.publish(msg)
         return wf_voxels
+
+    def _save_processed_voxels(self, voxels, save_path, is_ar=False):
+        """Because of some unexplanable ROS issue as I explained in this question:
+        https://answers.ros.org/question/342718/obtain-map-frame-pose-of-visual-markers/
+        I will not transform these voxels into world frame. But instead save them
+        as is -- that is, they are in frame with respect to the robot camera.
+        
+        Then on the POMDP side, because I have the frustum model implemented exactly
+        the same way, I can just match the voxel locations for the labels.
+
+        Previously I called  wf_voxels = self._transform_worldframe(voxels). But this
+        no longer works.
+        """
+        # Still actually need to turn the map to int -> (pose, label) because
+        # pose is a list and not hashable for safe_dump to handle
+        save_voxels = {}
+        for i, key in enumerate(voxels.keys()):
+            pose, label = voxels[key]
+            save_voxels[i] = (pose, label)
+        ar_note = "_ar" if is_ar else ""
+        with open(save_path, "w") as f:
+            yaml.safe_dump(save_voxels, f)
+            # signals file save done; This signal is only for non-ar voxels (which are listened to first)
+            with open(os.path.join(os.path.dirname(save_path),
+                                   "vdone%s.txt" % ar_note), "w") as f:
+                f.write("Voxels%s written." % ar_note)
+            if self._quit_when_saved:
+                self._quit = True
             
 
-    def process_cloud(self, msg):
+    def process_cloud(self, msg, is_ar=False):
         # Iterate over the voxels in the FOV
         points = []
         for point in sensor_msgs.point_cloud2.read_points(msg, skip_nans=True):
             points.append(point)
-        rospy.loginfo("(info)[Received %d points in point cloud]" % len(points))
+        ar_note = "  -- ar" if is_ar else ""
+        rospy.loginfo("(info)[Received %d points in point cloud%s]" % (len(points), ar_note))
         voxels = {}  # map from voxel_pose xyz to label
         parallel_occupied = {}
+        self._cam.print_info()
         for volume_voxel_pose in self._cam.volume:
             # Iterate over the whole point cloud sparsely
             i = 0
@@ -297,7 +356,7 @@ class PCLProcessor:
         pose.orientation.w = orien[3]
         return pose
 
-    def make_markers_msg(self, voxels):
+    def make_markers_msg(self, voxels, frame_id=None):
         """Convert voxels to Markers message for visualizatoin"""
         timestamp = rospy.Time.now()
         i = 0
@@ -307,7 +366,10 @@ class PCLProcessor:
             
             h = Header()
             h.stamp = timestamp
-            h.frame_id = self._voxel_marker_frame
+            if frame_id is not None:
+                h.frame_id = frame_id
+            else:
+                h.frame_id = self._voxel_marker_frame
             
             marker_msg = Marker()
             marker_msg.header = h
@@ -341,7 +403,7 @@ class PCLProcessor:
                 marker_msg.color.a = 1.0
             else:
                 raise ValueError("Unknown voxel label %s" % str(label))
-            marker_msg.lifetime = rospy.Duration.from_sec(3.0)  # forever
+            marker_msg.lifetime = rospy.Duration.from_sec(5)
             marker_msg.frame_locked = True
             markers.append(marker_msg)
 
@@ -351,10 +413,11 @@ class PCLProcessor:
 
 def main():
     parser = argparse.ArgumentParser(description='Process Point Cloud as Volumetric Observation')
+    parser.add_argument('-s', '--plan-step', type=int)
     parser.add_argument('-f', '--save-path', type=str)
     parser.add_argument('--quit-when-saved', action="store_true")    
     parser.add_argument('-p', '--point-cloud-topic', type=str,
-                        default="/movo_camera/sd/points")
+                        default="/points")
     parser.add_argument('-m', '--marker-topic', type=str,
                         default="/movo_pcl_processor/observation_markers")
     parser.add_argument('-M', '--mark-ar-tag', action="store_true")
@@ -407,9 +470,13 @@ def main():
                         mark_ar_tag=args.mark_ar_tag,
                         save_path=args.save_path,
                         quit_when_saved=args.quit_when_saved)
-    while not proc._quit:
-        rospy.spin()
+    lifetime = rospy.Duration(90)
+    rate = rospy.Rate(.1)
+    start_time = rospy.Time.now()
+    while not (proc._quit or rospy.is_shutdown()):
+        if rospy.Time.now() - start_time >= lifetime:
+            break
+        rate.sleep()
 
 if __name__ == "__main__":
     main()
-o
