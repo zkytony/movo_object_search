@@ -1,3 +1,6 @@
+# NOTE:
+**THiS REPOSITORY IS A COPY FROM [zkytony/kinova-movo](https://github.com/zkytony/kinova-movo/tree/kinetic-devel/movo_apps/movo_object_search). FOR REFERENCE ONLY. FOR DEVELOPMENT, BUILD UPON THE KINOVA-MOVO REPO.**
+
 # Package for MOVO Object Search
 
 ### Creating this package
